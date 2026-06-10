@@ -5,6 +5,18 @@
 
 ---
 
+## Authors & Institutional Context
+
+This project was developed cooperatively as part of the Erasmus+ Exchange Program at **Sapienza Università di Roma**.
+
+* **Alberto Rivas** — [ Polytechnic university of Oviedo / Uniovi]
+* **Carlos Fernández** — [ Polytechnic university of Oviedo / Uniovi]
+* **Joaquín Avilés** — [University of Sevilla / US]
+
+---
+
+---
+
 ## Repository Structure
 
 ```
@@ -12,6 +24,7 @@
 ├── Dataset/                    # See link below — too large for Git
 ├── Project_Presentation/       # Slides
 └── README.md
+└── Figures                     # Contains the Figures for this readme
 ```
 
 ## Dataset
@@ -42,12 +55,14 @@ All code is designed to run on **Google Colab** with a GPU runtime. Mount your G
 
 ## How to Run
 
-1. Mount Google Drive and verify `BASE_DATA_PATH` points to your dataset root.
-2. Run all cells top-to-bottom via **Runtime → Run all**.
-3. To switch experiments, change only the `ALPHA` global and re-run from the training cell.
+1. **Environment Setup:** Mount Google Drive and verify that `BASE_DATA_PATH` and `MODEL_SAVE_DIR` point correctly to your target directory paths.
+2. **Commented Code & Execution Avoidance:** Multiple sections of the notebook are commented out by default because they do not need to be re-run:
+   * **Data Pipeline:** Cells managing dataset downloading, balanced downsampling, and partitioning are locked. **It is not necessary to uncomment or run these cells** if you use the pre-processed, structured dataset provided in the **Dataset** section link.
+   * **Network Architecture:** The model section contains commented-out code from a preliminary exploratory experiment used to evaluate alternative backbones. **It is not necessary to re-run this exploration**, as the notebook is pre-configured to execute end-to-end using the final selected **ConvNeXt-Tiny** architecture.
+3. **Pipeline Execution:** Run remaining active cells sequentially from top to bottom (**Runtime → Run all**).
+4. **Hyperparameter Sweeps:** To transition between experiments (e.g., changing baselines or running the ablation sweep), update only the `ALPHA` variable in the Globals section and execute from the training initialization cells onward.
 
-> ⚠️ Never run cells out of order. The `Dataset` object captures the transform pipeline at `__init__` time — if you modify transforms, you must re-run the Dataset and DataLoader cells too.
-
+> ⚠️ **State Constraint:** Avoid executing cells out of order. The custom `Dataset` object caches its internal image-to-target path mapping at initialization (`__init__`). If folders or geometric transforms are modified, you must re-run both the Dataset initialization and the downstream `DataLoader` cells to re-collate active memory batches.
 ---
 
 ## Code Walkthrough
@@ -141,7 +156,7 @@ Statistical feature analysis is performed exclusively on the isolated Training s
   * **Sharpness (Laplacian Variance):** AI images are significantly sharper than real camera images, yielding a higher Laplacian variance ($+200.94$). This indicates the presence of crisp, artificial high-frequency textures or edge profiles characteristic of generative models.
 * **Distribution Shift Verification:** Comparative boxplots mapping raw data against the subsampled training vault confirm overlapping distributions across brightness and sharpness domains. This statistical match verifies that downsampling preserved the natural feature distributions of the source data.
 
-![Distribution Shift Verification](Figures/distribution_shift_check.png)
+![Distribution Shift Verification](figures/distribution_shift_check.png)
 
 #### 4.3.1 Statistical Distribution Shift Verification
 
