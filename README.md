@@ -23,7 +23,7 @@ This project was developed cooperatively as part of the Erasmus+ Exchange Progra
 ├── code.ipynb                  # Full pipeline: data → model → training → evaluation
 ├── Dataset/                    # See link below — too large for Git
 ├── Project_Presentation/       # Slides
-└── README.md
+├── README.md
 └── Figures                     # Contains the Figures for this readme
 ```
 
@@ -123,6 +123,14 @@ The following utility functions extract classical computer vision features to an
 ---
 
 ### 4. Data
+
+Before detailing the pipeline execution, it is necessary to establish the directory structure of the project. The data repository is organized into distinct workspace environments to isolate source assets, balanced subsets, and experimental checkpoints:
+
+* **`RRDataset_original_train_val` & `RRDataset_final`:** The raw, uncurated source repositories containing the complete, unbalanced multi-task image distributions.
+* **`RRDataset_Balanced_Subset`:** The unified target repository containing the balanced downsampled collection ($7,500$ images total) prior to partitioning.
+* **`RRDataset_PyTorch_Ready`:** The final production environment containing the isolated, stratified `train / val / test` data splits ready for DataLoader streaming.
+* **`RRDataset_preprocessing`:** A mirror backup copy of the `RRDataset_PyTorch_Ready` environment to preserve data integrity during experimental augmentation tests.
+* **`RRDataset_Mini_Subset`:** A lightweight, downscaled version of the dataset used exclusively for the quick empirical network tests during the model selection phase.
 
 ### 4.1 Dataset Profiling & Imbalance Resolution
 
