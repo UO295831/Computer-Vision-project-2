@@ -9,9 +9,9 @@
 
 This project was developed cooperatively as part of the Erasmus+ Exchange Program at **Sapienza Università di Roma**.
 
-* **Alberto Rivas** — [ Polytechnic University of Oviedo / Uniovi]
-* **Carlos Fernández** — [ Polytechnic University of Oviedo / Uniovi]
-* **Joaquín Avilés** — [University of Sevilla / US]
+* **Alberto Rivas** —  Polytechnic University of Oviedo / Uniovi
+* **Carlos Fernández** —  Polytechnic University of Oviedo / Uniovi
+* **Joaquín Avilés** — University of Sevilla / US
 
 ---
 
@@ -129,7 +129,7 @@ Before detailing the pipeline execution, it is necessary to establish the direct
 * **`RRDataset_original_train_val` & `RRDataset_final`:** The raw, uncurated source repositories containing the complete, unbalanced multi-task image distributions.
 * **`RRDataset_Balanced_Subset`:** The unified target repository containing the balanced downsampled collection ($7,500$ images total) prior to partitioning.
 * **`RRDataset_PyTorch_Ready`:** The final production environment containing the isolated, stratified `train / val / test` data splits ready for DataLoader streaming.
-* **`RRDataset_preprocessing`:** A mirror backup copy of the `RRDataset_PyTorch_Ready` environment to preserve data integrity during experimental augmentation tests.
+* **`RRDataset_preprocessing`:** A mirror backup copy of the `RRDataset_PyTorch_Ready` environment to preserve data integrity for possible changes in the original(no more than security).
 * **`RRDataset_Mini_Subset`:** A lightweight, downscaled version of the dataset used exclusively for the quick empirical network tests during the model selection phase.
 
 ### 4.1 Dataset Profiling & Imbalance Resolution
@@ -140,6 +140,8 @@ The raw dataset contains an asymmetrical distribution across its transformation 
 * **Hardware & Runtime Constraints:** Execution is bounded by a shared **Google Colab T4 GPU** environment. The project requires training 7 separate configurations (2 unimodal baselines, 1 joint model, and 4 ablation sweeps) running at roughly 1 hour per model. Training on the uncurated 36.5k image pool would cause compute-quota exhaustion and immense training stalls.
 * **Algorithmic Downsampling:** To satisfy the rubric's class-balance criteria and accommodate hardware limitations, a deterministic subsampling strategy is applied. Using a fixed random initialization seed (`seed(42)`), `random.sample` extracts a uniform subset matched to the lowest common denominator: 1,250 images per distinct sub-category.
 * **Mathematical Balance Verification:** The resulting subset scales down to a perfectly balanced pool of exactly 7,500 total images. This complete balance across both Authenticity (Real vs. Fake) and Transformation splits prevents the network from developing majority-class prediction biases (such as blindly outputting "Transmitted"), ensuring that accuracy values accurately reflect learned forensic artifacts.
+
+![Balanced subset](figures/balanced_subset.png)
 
 ### 4.2 Stratified Partitioning & Vault Isolation
 
