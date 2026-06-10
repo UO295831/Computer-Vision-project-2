@@ -169,3 +169,20 @@ To confirm that our algorithmic downsampling did not introduce selection bias or
 * **Brightness Distribution Parity:** The mean pixel intensity distributions are virtually identical. The medians ($\approx 95$), interquartile ranges (IQR, spanning $\approx 65$ to $125$), and full range bounds show near-perfect structural alignment. This confirms that downsampling did not skew the dataset towards abnormally dark or bright subsets.
 * **Sharpness (Laplacian Variance) Fidelity:** Measured on a log scale due to extreme structural outliers, the second-order gradient distributions remain highly consistent between both pools. The median variance ($\approx 600$) and the heavy-tailed outlier profiles track each other seamlessly. This ensures that high-frequency structural traits, such as sensor noise and sharp edges, were completely preserved.
 * **Pipeline Validation:** The overlapping morphology of these boxplots mathematically proves that the random sampling strategy successfully maintained the statistical characteristics of the source data. The Subsampled Train Vault serves as a reliable, statistically uncorrupted proxy for wide-scale model optimization.
+
+### 4.4 Advanced Forensic Pixel & Frequency Analysis (EDA)
+
+To expand the exploratory analysis beyond baseline statistics, classical feature extraction methods were applied to single-image samples from the Training set. This evaluation analyzes how spatial variations, gradient fields, and 2D frequency spectra expose distinct structural anomalies in AI-generated content compared to real photographs.
+
+#### 4.4.1 Frequency and Sharpness Domain Diagnostics
+
+By passing the sample files through the `plot_advanced_forensics` engine, spatial intensity changes were isolated using second spatial derivatives (Laplacian maps) alongside global frequency profiles (2D FFT Magnitude Spectra).
+
+![Advanced Forensic Diagnostic Grid](Figures/advanced_forensics_grid.png)
+
+* **2D FFT Spectrum & Noise Dispersion:**
+  * **Real Photo Spectrum:** The magnitude spectrum shows a clean, traditional concentration of energy clustered tightly around the low-frequency center axis. The amplitude signals decay smoothly and predictably as they move toward the outer bounds, carrying minimal high-frequency noise.
+  * **AI-Generated Image Spectrum:** The synthetic spectrum displays an anomalous spread of high-amplitude noise pushed far out toward the outer vertical and horizontal high-frequency edges. This characteristic footprint stems directly from upsampling and deconvolution operations inside generative neural networks, which inject repeating high-frequency structural noise artifacts into the pixel matrix.
+* **Laplacian Edge Maps & Textural Fidelity:**
+  * **Real Photo Laplacian:** The second-order gradient map captures significantly less fine structural detail across subtle variations in the human subject. Because the natural camera sensor is constrained by physical lens properties and soft low-frequency transitions, micro-details (such as the facial structure under the mask) appear darker and less sharply defined.
+  * **AI-Generated Laplacian:** The synthetic edge map exhibits an unnaturally hyper-sharp, uniform response. It easily captures sharp high-frequency elements across the entire canvas—ranging from deep texture variations in the brickwork to the fine geometric structures of the castle windows and towers. This mathematical sharpness confirms that generative models optimize heavily for micro-level edge contrast, leaving behind a clear forensic trail.
