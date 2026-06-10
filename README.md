@@ -186,3 +186,31 @@ By passing the sample files through the `plot_advanced_forensics` engine, spatia
 * **Laplacian Edge Maps & Textural Fidelity:**
   * **Real Photo Laplacian:** The second-order gradient map captures significantly less fine structural detail across subtle variations in the human subject. Because the natural camera sensor is constrained by physical lens properties and soft low-frequency transitions, micro-details (such as the facial structure under the mask) appear darker and less sharply defined.
   * **AI-Generated Laplacian:** The synthetic edge map exhibits an unnaturally hyper-sharp, uniform response. It easily captures sharp high-frequency elements across the entire canvas—ranging from deep texture variations in the brickwork to the fine geometric structures of the castle windows and towers. This mathematical sharpness confirms that generative models optimize heavily for micro-level edge contrast, leaving behind a clear forensic trail.
+
+### 4.5 Forensic-Optimized Image Preprocessing Pipeline
+
+Instead of relying on standard augmentation defaults, we designed a targeted preprocessing pipeline. While it uses standard cropping to unify spatial dimensions, specific high-fidelity adjustments were made to protect microscopic forensic traces:
+
+* **Nearest-Neighbor Interpolation:** Standard resampling (like bilinear or bicubic) acts as a low-pass filter, essentially smoothing away the exact micro-anomalies we want to detect. We enforce Nearest-Neighbor scaling to preserve discrete 8×8 JPEG compression blocks and artificial generative checkerboard footprints.
+* **Coherent Spatial Constraints:** We allow horizontal flips but strictly forbid vertical flips or arbitrary rotations. This protects the physical coordinate rules of "Redigitized" screen captures, where moiré interference waves and overhead ambient glare depend on a consistent top-to-bottom orientation.
+* **Anti-Shortcut Regularization (Random Erasing):** Multi-task networks are prone to "shortcut learning"—memorizing a single local artifact to lazily guess both labels. By randomly occluding small spatial sub-regions, we force the network's attention to distribute uniformly across the entire canvas.
+* **Luminance & Color Jittering:** Subtle color and grayscale shifts prevent the model from memorizing the global chromatic signatures of specific cameras or generative rendering engines.
+
+
+### 4.6 Custom Multi-Task Learning Dataset Architecture
+
+Standard PyTorch dataloaders (like `ImageFolder`) are hardcoded for single-label classification. Because our architecture requires a unified backbone to predict two independent forensic traits simultaneously, we engineered a custom multi-task dataset wrapper.
+
+* **Dynamic Path Crawling:** The dataset automatically crawls our nested directory structure, decoding the physical path of each image to dynamically identify its ground-truth categories.
+* **Synchronized Integer Mapping:** It converts the text-based metadata into discrete numerical tokens required for PyTorch's Cross-Entropy Loss optimization:
+  * **Task 1 (Authenticity):** `Real` $\rightarrow$ 0 | `Fake_AI` $\rightarrow$ 1
+  * **Task 2 (Transformation):** `Original` $\rightarrow$ 0 | `Transmitted` $\rightarrow$ 1 | `Redigitized` $\rightarrow$ 2
+* **Multi-Target Output:** Instead of returning a standard `(image, label)` pair, the custom pipeline processes the raw image through the forensic augmentations and streams a structural multi-target tuple: `(image_tensor, authenticity_label, transformation_label)`.
+
+### 4.7 Parallelized Batch Streaming Engines (DataLoaders)
+
+Once the data is mapped and preprocessed by the custom dataset class, it must be efficiently streamed from the storage disk into active GPU memory. We initialized PyTorch `DataLoader` pipelines to handle this transition systematically.
+
+* **Batch Optimization:** We utilize a mini-batch size of 32. This specific threshold maximizes the statistical stability of our stochastic gradient descent (SGD) updates while safely operating within the tight VRAM limits of the Google Colab NVIDIA T4 GPU.
+* **Stochastic Shuffling:** Shuffling is strictly enabled for the training partition. This exposes the network to an unpredictable, randomized distribution of classes across iterations, preventing it from developing temporal sequence biases. The validation and test vaults remain unshuffled to guarantee deterministic, reproducible evaluations.
+* **Hardware Acceleration:** To prevent the GPU from idling while waiting for images to load, the pipeline employs parallel CPU multi-threading (`num_workers=2`). Additionally, we enable page-locked memory (`pin_memory=True`), which significantly accelerates the transfer speeds of tensor batches directly into the CUDA hardware architecture.
