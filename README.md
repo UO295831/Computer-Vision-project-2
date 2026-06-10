@@ -9,8 +9,8 @@
 
 This project was developed cooperatively as part of the Erasmus+ Exchange Program at **Sapienza Università di Roma**.
 
-* **Alberto Rivas** — [ Polytechnic university of Oviedo / Uniovi]
-* **Carlos Fernández** — [ Polytechnic university of Oviedo / Uniovi]
+* **Alberto Rivas** — [ Polytechnic University of Oviedo / Uniovi]
+* **Carlos Fernández** — [ Polytechnic University of Oviedo / Uniovi]
 * **Joaquín Avilés** — [University of Sevilla / US]
 
 ---
@@ -33,7 +33,7 @@ The project uses the **RRDataset** — a real-world robustness benchmark contain
 
 > **Dataset download:** [https://drive.google.com/drive/folders/1CzWAxIhxyBlK4XRAYrQrbexKosUDD1yP?usp=drive_link]
 
-The dataset is not included in this repository due to its size. After downloading, place it at the path defined in the `BASE_DATA_PATH` global (see §2 Globals).
+The dataset is not included in this repository due to its size. After downloading, place it at the path defined in the `BASE_DATA_PATH` global (see section 2 Globals).
 
 ---
 
@@ -68,12 +68,13 @@ All code is designed to run on **Google Colab** with a GPU runtime. Mount your G
 ## Code Walkthrough
 
 ### 1. Imports
-The import block establishes the dependency surface of the pipeline, with each library serving a distinct structural role:
 
-* **PyTorch Ecosystem (`torch`, `nn`, `optim`, `torchvision`):** Forms the computational core. `torch.nn` structures the shared backbone and dual classification heads. **AdamW** is selected over standard Adam for its decoupled weight decay, which is critical during fine-tuning to prevent $L2$ regularization from interfering with adaptive learning rates. `torchvision` supplies the pre-trained ConvNeXt-Tiny weights and preprocessing transforms.
-* **OpenCV (`cv2`) vs. PIL:** PIL handles standard image loading and basic transforms. OpenCV is reserved exclusively for forensic exploratory data analysis (EDA), providing the kernel-level control and floating-point precision required for advanced operations like Laplacian edge maps, Difference of Gaussians (DoG), and 2D FFT spectra.
-* **scikit-learn (`accuracy_score`, `confusion_matrix`):** Strictly limited to post-hoc evaluation metrics. No sklearn estimators interact with the training loop to avoid breaking PyTorch's automatic differentiation (`autograd`) graph construction.
-* **`Image.MAX_IMAGE_PIXELS = None`:** Disables PIL's decompression bomb safety threshold. Since the pipeline processes a controlled, trusted academic dataset containing high-resolution imagery, this eliminates silent batch-loading stalls or warnings.
+The import block establishes the functional dependency layers required to support the execution lifecycle:
+
+* **Deep Learning Engine (PyTorch):** Powers the core tensor mechanics. `torch.nn` designs the dual-head multi-task architecture, `torchvision` pulls the pre-trained ConvNeXt weights, and **AdamW** separates weight decay from adaptive gradient updates to optimize fine-tuning precision.
+* **Image Processing Engine (PIL & OpenCV):** Split by operation type. PIL manages downstream data-loader batch ingestion, while OpenCV supplies high-precision floating-point matrix control for advanced forensic features (Laplacian edge maps, DoG, and 2D FFT spectra).
+* **Metrics Core (scikit-learn):** Handles completely isolated post-hoc evaluation tools to keep external statistical estimators out of the PyTorch `autograd` graph.
+* **Pipeline Configuration:** Overrides PIL thresholds (`Image.MAX_IMAGE_PIXELS = None`) to unlock seamless background decoding for high-resolution research imagery.
 
 ---
 
@@ -96,36 +97,29 @@ EPOCHS         = 20
 
 Centralizing all mutable configuration parameters in a single block ensures notebook-wide consistency, eliminating the risk of parameter mismatch between training, evaluation, and checkpointing.
 
-* **Hardware Routing:** Dynamically selects the execution device via `torch.cuda.is_available()`. Logging the specific GPU device name provides vital runtime verification in volatile cloud environments like Google Colab.
 * **`CROP_SIZE = 224`:** Matches the input dimensions required by pre-trained ConvNeXt-Tiny weights. Because the backbone's patchify stem relies on fixed 4×4 non-overlapping patches, deviating from 224×224 would disrupt positional embedding expectations and degrade features.
 * **`BATCH_SIZE = 32`:** Balances GPU memory consumption, computational throughput, and gradient variance. It provides stable optimization path convergence during fine-tuning.
 * **`LEARNING_RATE = 1e-4`:** Sets the baseline learning rate for the new classification heads. The backbone uses a differential learning rate scale factor ($0.1 \times \text{LR} = 10^{-5}$) to protect pre-trained ImageNet representations from catastrophic forgetting while allowing the heads to learn rapidly.
 * **`EPOCHS = 20`:** Selected empirically based on baseline convergence trends (where metrics stabilized between epochs 7 and 15), providing sufficient headroom for slower multi-task adjustments without wasting compute.
-* **Path Separation:** Explicitly isolates the read-only input source (`BASE_DATA_PATH`) from the write-only checkpoint target directory (`MODEL_SAVE_DIR`), preventing accidental data overwrites during subsequent pipeline executions.
 
 ---
 
-### 3. Utilities — Forensic EDA
+### 3. Utilities 
 
-Diagnostic and visualization utilities are split into training progression trackers and pre-training exploratory data analysis (EDA) diagnostics used to isolate real vs. AI structural variations.
+To keep the main training lifecycle clean and modular, several specialized helper functions are predefined at this stage. These functions decouple visualization and pre-training exploratory data analysis (EDA) from the structural network cells.
 
-#### 3.1 Training Visualization
-* **`plot_training_history`:** Plots train and validation loss curves on a shared axis to detect overfitting and confirm optimal early-stopping checkpoint selection.
+### 2.1 Model Metrics Visualization
+* **`plot_training_history`:** Tracks and renders comparative training vs. validation loss trends across optimization epochs to monitor for potential overfitting.
 
-#### 3.2 Classical Feature Extraction
-* **`extract_course_features`:** Computes four legacy descriptors to expose low-level synthetic anomalies:
-  * **CLAHE:** Normalizes local contrast within 8×8 pixel windows to reveal micro-texture uniformities inside flat AI surfaces (e.g., skin, sky).
-  * **Difference of Gaussians (DoG):** Functions as a bandpass filter to detect structural residuals left behind by neural upsampling operations.
-  * **HOG Trajectories:** Maps gradient orientation histograms to contrast natural geometric alignments against smoothed, isotropic AI edge distributions.
-  * **ORB Keypoints:** Plots FAST corner density distributions to flag semantically implausible keypoint clustering or unnatural texture voids.
-
-#### 3.3 Comparative Diagnostic Dashboard
-* **`run_syllabus_eda_comparison`:** Renders a 2×4 matrix comparing real vs. fake images side-by-side. Empirical analysis of this grid justified using `NEAREST` interpolation resizing to protect raw high-frequency features from blurring artifacts.
-
-#### 3.4 Frequency Domain Analysis
-* **`plot_advanced_forensics`:** Visualizes signal behaviors across explicit spatial and frequency boundaries:
-  * **Laplacian Edge Maps:** Measures second spatial derivatives to highlight differences between sharp physical transitions and smooth diffusion model outputs.
-  * **2D FFT Magnitude Spectrum:** Extracts global spatial frequencies to identify distinct grid-like structural patterns ("spectral artifacts") generated by convolutional decoding blocks.
+### 2.2 Pre-Training Forensic Descriptors
+The following utility functions extract classical computer vision features to analyze structural differences between natural and AI-generated imagery:
+* **`extract_course_features`:** A modular feature extractor that isolates distinct structural signatures from a single image path:
+  * **Local Contrast (CLAHE):** Highlights localized micro-texture irregularities.
+  * **Scale Space (DoG):** Functions as a spatial bandpass filter to detect artifacts from neural upsampling.
+  * **Gradient Histograms (HOG Angles):** Maps structural edge orientation fields.
+  * **Keypoint Tracking (ORB):** Counts and evaluates local scale-invariant corner point density.
+* **`run_syllabus_eda_comparison`:** Compiles the extracted features into a side-by-side $2 \times 4$ diagnostic matrix for direct comparative validation.
+* **`plot_advanced_forensics`:** Maps spatial gradients against the frequency domain via **Laplacian Edge Maps** (second spatial derivatives) and **2D Fast Fourier Transform (FFT) Magnitude Spectra** to expose generative checkerboard anomalies.
 ---
 
 ### 4. Data
