@@ -11,7 +11,7 @@ This project was developed cooperatively as part of the Erasmus+ Exchange Progra
 
 * **Alberto Rivas** —  Polytechnic University of Oviedo / Uniovi
 * **Carlos Fernández** —  Polytechnic University of Oviedo / Uniovi
-* **Joaquín Avilés** — University of Sevilla / US
+* **Joaquín Avilés** — University of Granada / UGR
 
 ---
 
