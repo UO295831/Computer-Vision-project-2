@@ -214,3 +214,43 @@ Once the data is mapped and preprocessed by the custom dataset class, it must be
 * **Batch Optimization:** We utilize a mini-batch size of 32. This specific threshold maximizes the statistical stability of our stochastic gradient descent (SGD) updates while safely operating within the tight VRAM limits of the Google Colab NVIDIA T4 GPU.
 * **Stochastic Shuffling:** Shuffling is strictly enabled for the training partition. This exposes the network to an unpredictable, randomized distribution of classes across iterations, preventing it from developing temporal sequence biases. The validation and test vaults remain unshuffled to guarantee deterministic, reproducible evaluations.
 * **Hardware Acceleration:** To prevent the GPU from idling while waiting for images to load, the pipeline employs parallel CPU multi-threading (`num_workers=2`). Additionally, we enable page-locked memory (`pin_memory=True`), which significantly accelerates the transfer speeds of tensor batches directly into the CUDA hardware architecture.
+
+## 5. Network Architecture
+
+The objective of our architecture is to implement a **Multi-Task Learning (MTL)** network that processes a single input image to simultaneously solve two independent forensic tasks:
+1. **Authenticity Classification** (Real vs. Fake).
+2. **Post-Processing Transformation Identification** (Original vs. Internet-Transmitted vs. Re-digitized).
+
+To prevent feature degradation across tasks, the network utilizes a **shared-backbone schema**. A single feature extractor isolates low-level forensic artifacts (such as generative checkerboard anomalies and high-frequency noise) and routes the resulting latent embedding into two parallel, independent classification heads.
+
+### 5.1 Backbone Exploratory Selection & Paradigm Comparison
+
+Before finalizing the pipeline architecture, a preliminary empirical exploration was executed on the lightweight `RRDataset_Mini_Subset` to benchmark three distinct generations of Computer Vision backbones under a single-task baseline (Authenticity detection):
+
+* **ResNet-50 (Residual Convolutional Paradigm):** Acted as our traditional baseline. Although robust due to its residual connections, its reliance on successional pooling and small $3\times3$ kernels aggressively downscales spatial resolution, which tends to smooth away subtle high-frequency forensic signatures.
+* **EfficientNet-B3 (Compound Scaling Paradigm):** Evaluated due to its optimized resource efficiency via mobile inverted bottlenecks ($MBConv$). However, its architectural tuning prioritizes global semantic object features over the localized pixel-level anomalies crucial for synthetic image detection.
+* **ConvNeXt-Tiny (Modernized Convolutional Paradigm):** Selected as our final production backbone. Designed as a pure convolutional network that emulates the representation strengths of Vision Transformers (ViTs), it introduces a non-overlapping **Patchify Stem** ($4\times4$ patches) and larger $7\times7$ convolutions. This layout expands its early effective receptive field, enabling the network to capture periodic grid structures and edge profiles simultaneously.
+
+### 5.1.1 Prototype Generation Strategy (Lightweight Subsampling)
+
+Before execution of the full backbone selection matrix, the pipeline initializes a localized, resource-optimized exploratory environment. This sandbox architecture relies on the algorithmic isolation of a lightweight and perfectly balanced prototype subset extracted from the raw data pools. 
+
+The conceptual methodology behind this tactical downsampling is governed by three primary engineering objectives:
+
+* **Compute-Quota Mitigation:** Training multiple deep neural networks across the entire 36.5k uncurated image pool during a preliminary exploratory phase would trigger Google Colab T4 runtime exhaustion and introduce immense training stalls. The prototype engine acts as a fast-forward validator to optimize computational throughput.
+* **Stochastic Parity Insurance:** The system enforces an absolute equilibrium constraint by pulling exactly 300 randomized samples for every discrete multi-task label pairing. This strict balance guarantees a level playing field, preventing competing architectures from developing majority-class statistical biases toward uncurated data trends.
+* **Deterministic Isolation:** By locking a fixed random initialization seed during the slicing routine, this prototype vault functions as a scientific control baseline. This guarantees complete experiment reproducibility, ensuring that any performance variations recorded across the backbones are mathematically driven by their structural layers rather than random distribution shifts.
+
+### 5.1.2 Exploratory Preprocessing Engine & Normalization Baseline
+
+To evaluate the pre-trained features of ResNet-50, EfficientNet-B3, and ConvNeXt-Tiny under identical conditions, the prototype pipeline establishes a rigorous data normalization baseline.
+
+#### **The Methodology: Why and How**
+* **The "Why":** Neural networks pre-trained on ImageNet-1K expect input data to match the exact statistical distribution of the original training corpus. Deviating from these channels changes the activation distribution inside the initial convolutional layers, leading to unrepresentative performance metrics that disrupt the backbone selection process.
+* **The "How":** The pipeline compiles standard geometric and tensor operations into fixed sequential chains. Crucially, for this comparative diagnostic, the prototype bypasses stochastic data augmentations (such as random cropping or complex erasing). By freezing spatial configurations via deterministic transformations, the network architectures are forced to compete purely on their internal feature-extraction capacity, filtering out any performance gains caused by random augmentation luck.
+
+#### **Conceptual Pipeline Stages**
+
+1. **Spatial Dimension Unification:** Every image enters a deterministic resizing stage to establish a uniform grid layout. This step is mandatory because the final downstream classification heads expect a fixed-size latent representation vector from the backbone.
+2. **Data Structure Casting:** The pixel matrices are transformed from standard 8-bit integer formats into multi-dimensional floating-point tensors. This operation scales the intensity values into a continuous range, which is the mathematically required format for gradient propagation in PyTorch.
+3. **Statistical Channel Standardization:** Each color channel (Red, Green, Blue) undergoes a shift-and-scale transformation to match the exact mean and standard deviation profiles of the ImageNet dataset. This centers the data distribution, ensuring that the pre-trained convolutional filters operate at peak efficiency from the very first iteration of the benchmark test.
