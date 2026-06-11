@@ -141,7 +141,7 @@ The raw dataset contains an asymmetrical distribution across its transformation 
 * **Algorithmic Downsampling:** To satisfy the rubric's class-balance criteria and accommodate hardware limitations, a deterministic subsampling strategy is applied. Using a fixed random initialization seed (`seed(42)`), `random.sample` extracts a uniform subset matched to the lowest common denominator: 1,250 images per distinct sub-category.
 * **Mathematical Balance Verification:** The resulting subset scales down to a perfectly balanced pool of exactly 7,500 total images. This complete balance across both Authenticity (Real vs. Fake) and Transformation splits prevents the network from developing majority-class prediction biases (such as blindly outputting "Transmitted"), ensuring that accuracy values accurately reflect learned forensic artifacts.
 
-![Balanced subset](figures/balanced_subset.png)
+![Balanced subset](Figures/balanced_subset.png)
 
 ### 4.2 Stratified Partitioning & Vault Isolation
 
@@ -160,7 +160,7 @@ Statistical feature analysis is performed exclusively on the isolated Training s
   * **Sharpness (Laplacian Variance):** AI images are significantly sharper than real camera images, yielding a higher Laplacian variance ($+200.94$). This indicates the presence of crisp, artificial high-frequency textures or edge profiles characteristic of generative models.
 * **Distribution Shift Verification:** Comparative boxplots mapping raw data against the subsampled training vault confirm overlapping distributions across brightness and sharpness domains. This statistical match verifies that downsampling preserved the natural feature distributions of the source data.
 
-![Distribution Shift Verification](figures/distribution_shift_check.png)
+![Distribution Shift Verification](Figures/distribution_shift_check.png)
 
 #### 4.3.1 Statistical Distribution Shift Verification
 
