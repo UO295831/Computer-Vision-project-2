@@ -255,6 +255,33 @@ To evaluate the pre-trained features of ResNet-50, EfficientNet-B3, and ConvNeXt
 2. **Data Structure Casting:** The pixel matrices are transformed from standard 8-bit integer formats into multi-dimensional floating-point tensors. This operation scales the intensity values into a continuous range, which is the mathematically required format for gradient propagation in PyTorch.
 3. **Statistical Channel Standardization:** Each color channel (Red, Green, Blue) undergoes a shift-and-scale transformation to match the exact mean and standard deviation profiles of the ImageNet dataset. This centers the data distribution, ensuring that the pre-trained convolutional filters operate at peak efficiency from the very first iteration of the benchmark test.
 
+### 5.1.3 Empirical Backbone Validation (Linear Probing Protocol)
+
+To determine which feature extractor inherently captures forensic artifacts without structural modification, the pipeline implements a **Linear Probing** validation protocol. 
+
+#### **The Methodology: Why and How**
+* **The "Why":** Evaluating deep architectures by fully training them is computationally expensive. Linear probing offers a shortcut: it freezes the pre-trained weights of the models, converting them into static feature encoders. By training a simple, non-complex linear classifier (Logistic Regression) on top of these extracted features, we can measure how linearly separable the data representations are. The network that yields the highest accuracy is proven to possess the most effective internal layout for isolating synthetic anomalies out-of-the-box.
+* **The "How":** The process operates across four conceptual steps:
+  1. **Head Mutilation:** The native classification heads of ResNet-50, EfficientNet-B3, and ConvNeXt-Tiny are replaced with identity operators. This strips away their ImageNet label mappings, transforming them into pure mathematical feature encoders.
+  2. **Latent Vector Extraction:** A fixed subset of 500 images is streamed through each network. The models are locked in evaluation mode with gradient tracking disabled to isolate the raw embedding tensors. For architectures yielding 4D tensor maps due to convolutional configurations, global average pooling is applied to reduce the output to a consistent 1D feature vector.
+  3. **Standardized Linear Probing:** The extracted latent matrices are scaled using standard normalization to ensure uniform feature distribution. An independent Logistic Regression classifier is trained on an 80/20 data split.
+  4. **Leaderboard Evaluation:** The final test accuracy acts as a direct metric of structural efficiency. The architecture that naturally organizes real and fake distributions into distinct, linearly separable clusters is declared the winning backbone for the multi-task engine.
+
+### 5.2 Custom Multi-Task Network Architecture (`ConvNeXtMultiTask`)
+
+To implement our parallel multi-task detection engine, the system overrides standard single-target classification paths by constructing a deep dual-head neural network inherited from `nn.Module`. 
+
+#### **The Methodology: Why and How**
+* **The "Why":** Standard networks route spatial patterns into a single classification target. Training two completely separate networks would double the VRAM load on our Google Colab T4 hardware. More importantly, it would fail to capitalize on representation learning. A shared-backbone schema forces the network to learn rich, generalized features (like edge anomalies and noise profiles) that are highly valuable to both tasks simultaneously.
+* **The "How":** The architecture decomposes a pre-trained ConvNeXt-Tiny model to isolate its feature extraction blocks. The structural mapping operates through three major phases:
+
+1. **Shared Feature Extraction:** The pipeline strips the native ImageNet head, extracting `base.features` as a pure multi-scale convolutional encoder. When an image tensor passes through this block, it maps localized spatial profiles into a continuous high-dimensional latent matrix. An **Adaptive Average Pooling** stage compresses the spatial map into a fixed representation vector.
+2. **Conditional Optimization Safeguard (`freeze_backbone`):** The network incorporates a boolean flag to isolate gradients. When enabled, it locks the shared parameters by turning off gradient tracking across the backbone. This acts as a protective shield during early exploratory training, allowing the new classification heads to learn foundational boundaries without altering the pre-trained ImageNet weights.
+3. **Dual Head Routing:** The flattened latent vector is simultaneously copied and routed into two non-interfering sequential classification blocks:
+   * **Authenticity Head (`head_auth`):** Processes the shared features through a dense bottleneck layer to map the probability distribution of two discrete outputs (Real vs. Fake_AI).
+   * **Transformation Head (`head_trans`):** Concurrently processes the exact same latent embedding through a parallel matrix structure to determine three transformation states (Original vs. Internet-Transmitted vs. Re-digitized).
+
+
 ## 6. Training
 
 Once the dual-head **ConvNeXt-Tiny** model and the balanced data loaders are ready, both tasks are trained together in a single loop. Because one shared backbone has to handle **Authenticity** (Real vs. Fake) and **Transformation** (Original / Transmitted / Redigitized) at the same time, the training is designed to balance the learning between the two heads, while keeping the pre-trained ImageNet weights from being damaged.
