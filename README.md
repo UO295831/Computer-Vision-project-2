@@ -283,7 +283,7 @@ To implement our parallel multi-task detection engine, the system overrides stan
 
 
 ## 6. Training
-**Models trained:** [https://drive.google.com/drive/folders/1JslGz06L9Uk9KyO_IXO_Cuh9gAbDCVQL?usp=sharing]
+> **Models trained:** [https://drive.google.com/drive/folders/1JslGz06L9Uk9KyO_IXO_Cuh9gAbDCVQL?usp=sharing]
 
 Once the dual-head **ConvNeXt-Tiny** model and the balanced data loaders are ready, both tasks are trained together in a single loop. Because one shared backbone has to handle **Authenticity** (Real vs. Fake) and **Transformation** (Original / Transmitted / Redigitized) at the same time, the training is designed to balance the learning between the two heads, while keeping the pre-trained ImageNet weights from being damaged.
 
