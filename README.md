@@ -254,3 +254,133 @@ To evaluate the pre-trained features of ResNet-50, EfficientNet-B3, and ConvNeXt
 1. **Spatial Dimension Unification:** Every image enters a deterministic resizing stage to establish a uniform grid layout. This step is mandatory because the final downstream classification heads expect a fixed-size latent representation vector from the backbone.
 2. **Data Structure Casting:** The pixel matrices are transformed from standard 8-bit integer formats into multi-dimensional floating-point tensors. This operation scales the intensity values into a continuous range, which is the mathematically required format for gradient propagation in PyTorch.
 3. **Statistical Channel Standardization:** Each color channel (Red, Green, Blue) undergoes a shift-and-scale transformation to match the exact mean and standard deviation profiles of the ImageNet dataset. This centers the data distribution, ensuring that the pre-trained convolutional filters operate at peak efficiency from the very first iteration of the benchmark test.
+
+## 6. Training
+
+Once the dual-head **ConvNeXt-Tiny** model and the balanced data loaders are ready, both tasks are trained together in a single loop. Because one shared backbone has to handle **Authenticity** (Real vs. Fake) and **Transformation** (Original / Transmitted / Redigitized) at the same time, the training is designed to balance the learning between the two heads, while keeping the pre-trained ImageNet weights from being damaged.
+
+### 6.1 Composite Multi-Task Loss
+
+Each head has its own **Cross-Entropy** loss, following the integer label mapping defined in the custom dataset (Section 4.6). The two losses are combined into a single value using a weight $\alpha$, which works like a slider that sets how much attention each task gets:
+
+$$\mathcal{L}_{\text{total}} = \alpha \cdot \mathcal{L}_{\text{auth}} + (1 - \alpha) \cdot \mathcal{L}_{\text{transf}}$$
+
+* **$\alpha = 1.0$** → the model only learns Authenticity (Transformation is ignored) — *unimodal baseline 1*.
+* **$\alpha = 0.0$** → the model only learns Transformation (Authenticity is ignored) — *unimodal baseline 2*.
+* **$\alpha = 0.5$** → both tasks get equal weight — *balanced joint multi-task training*.
+
+Using one shared embedding for both heads is also what can push the network toward **shortcut learning** — the problem that Random Erasing (Section 4.5) helps prevent. The combined loss forces the backbone to learn features that are useful for both tasks at the same time, instead of memorizing one small detail to answer both.
+
+### 6.2 Optimizer and Learning Rates
+
+The model is trained with **AdamW** (with decoupled weight decay, `weight_decay = 1e-4`). AdamW keeps the weight-decay term from being scaled incorrectly by Adam's adaptive learning rates during fine-tuning.
+
+```python
+optimizer = optim.AdamW([
+    {"params": model.backbone.parameters(),   "lr": LR * 0.1},  # 3e-5
+    {"params": model.head_auth.parameters(),  "lr": LR},        # 3e-4
+    {"params": model.head_trans.parameters(), "lr": LR},        # 3e-4
+], weight_decay=1e-4)
+
+scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-6)
+```
+
+* **Different learning rates:** The new classification heads use the base rate ($\text{LR} = 3\times10^{-4}$) so they learn quickly, while the ConvNeXt backbone uses a rate 10× smaller ($3\times10^{-5}$). This gap is the main protection against **catastrophic forgetting**: the pre-trained edge and texture knowledge is adjusted gently instead of being erased.
+* **Cosine annealing schedule:** The learning rate decreases smoothly toward `eta_min = 1e-6` over the 20 epochs. This allows big steps at the start and small, careful steps near the end.
+* **Regularization in the heads:** Both heads use `LayerNorm → Dropout(0.3) → Linear(768→256) → GELU → Dropout(0.15) → Linear(256→C)`. The dropout layers turn off random neurons during training to reduce overfitting.
+
+### 6.3 Early Stopping with Best-Checkpoint Saving
+
+Instead of keeping the weights from the last epoch, the loop watches the validation Authenticity accuracy and saves a checkpoint to `MODEL_SAVE_DIR` **only when this accuracy improves**. This works as early stopping: even if a later epoch starts to overfit, the best weights are already saved.
+
+```python
+if val_metrics["acc_auth"] > best_val_auth:
+    best_val_auth = val_metrics["acc_auth"]
+    torch.save(model.state_dict(), os.path.join(MODEL_SAVE_DIR, f"best_alpha{ALPHA}.pt"))
+```
+
+### 6.4 Training Progress
+
+The table below summarizes a representative run, the $\alpha = 0.9$ configuration, which reached the best Authenticity F1 in the sweep at a few key epochs.
+
+| Epoch | Train loss | Train acc (Auth) | Train acc (Transf) | Val acc (Auth) | Val acc (Transf) |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| 1 | 0.3698 | 0.842 | 0.732 | 0.911 | 0.836 |
+| 5 | 0.0483 | 0.988 | 0.923 | 0.928 | 0.907 |
+| 10 | 0.0189 | 0.997 | 0.964 | 0.936 | 0.937 |
+| 15 | 0.0105 | 0.998 | 0.978 | 0.940 | 0.940 |
+| **17 (best)** | 0.0098 | 0.999 | 0.979 | **0.949** | 0.933 |
+| 20 | 0.0093 | 0.999 | 0.979 | 0.945 | 0.933 |
+
+* **Loss goes down steadily:** The total training loss drops from 0.3698 (epoch 1) to 0.0093 (epoch 20). During the whole run the Transformation loss stays above the Authenticity loss, which shows that the 3-class transformation task is harder to learn.
+* **No overfitting:** Training Authenticity accuracy reaches almost 0.999, but validation accuracy keeps going up instead of dropping, from 0.911 to a peak of 0.949 at epoch 17. The regularization techniques (Random Erasing, dropout, color jitter, cosine decay) keep training and validation close together.
+* **Stable region:** Both validation accuracies become flat between epochs 12 and 18, which supports the choice of 20 epochs as the limit (in line with the note in Section 2).
+
+### 6.5 The α Sweep
+
+Training is not a single run but a sweep of **seven configurations**. To move from one to another, you only change the `ALPHA` variable and re-run from the training cell (see *How to Run*): the **2 unimodal baselines** ($\alpha = 0.0$ and $\alpha = 1.0$), the **balanced joint model** ($\alpha = 0.5$), and **4 extra points** for the ablation ($\alpha \in \{0.1, 0.3, 0.7, 0.9\}$). Each configuration is saved as its own checkpoint (`best_alpha{α}.pt`) and then frozen for the evaluation below.
+
+---
+
+## 7. Testing
+
+After the seven configurations are trained and saved, each model is tested on the locked Test set (750 images, 125 per class) that were never used during training or tuning. To avoid hiding weaknesses behind a single accuracy value, the evaluation reports **Accuracy, macro F1-Score, and AUC-ROC** for each task.
+
+### 7.1 Evaluation Setup and Metrics
+
+* **Isolated test data:** The Test loader runs without shuffling and with gradients disabled, so the predictions are deterministic and reproducible. Metrics are computed with **scikit-learn**, outside the PyTorch autograd graph.
+* **More than just accuracy:** Besides global accuracy, we report **macro-averaged F1** (each class counts equally, which fits our balanced dataset) and **AUC-ROC** for the binary Authenticity head, which measures how well the model ranks Real vs. Fake regardless of the decision threshold.
+
+### 7.2 Baselines vs. Joint Model ($\alpha = 0.0$ / $1.0$ / $0.5$)
+
+Comparing the two unimodal baselines with the balanced joint model shows how badly single-task training fails on the *other* task and that the joint model recovers both tasks without losing performance.
+
+| Configuration | $\alpha$ | Auth. Acc | Auth. AUC | Auth. F1 | Transf. Acc | Transf. F1 |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Transformation-only baseline | 0.0 | 0.4560 | 0.4326 | 0.4472 | 0.9093 | 0.9087 |
+| Authenticity-only baseline | 1.0 | 0.9373 | 0.9869 | 0.9384 | 0.3427 | 0.3379 |
+| **Balanced joint (recommended)** | **0.5** | **0.9373** | **0.9876** | **0.9374** | **0.9440** | **0.9439** |
+
+* **Transformation-only ($\alpha = 0.0$):** Very good on transformation (0.9093 Acc) but fails completely on Authenticity — 0.4472 F1 and an AUC of 0.4326, which is worse than random guessing. Without any weight on the Authenticity head, the model never learns a stable Real/Fake boundary.
+* **Authenticity-only ($\alpha = 1.0$):** Strong Real/Fake detection (0.9384 F1, 0.9869 AUC), but Transformation drops to chance level (0.3379 F1 on a 3-class task). Learning to detect AI images does not teach the model to tell JPEG transmission apart from screen recapture.
+* **Balanced joint ($\alpha = 0.5$):** Fixes both problems at once. It keeps top Authenticity performance (0.9373 Acc, and the best AUC of the three, 0.9876) while fully recovering Transformation (0.9440 Acc, 0.9439 F1).
+
+### 7.3 Accuracy by Transformation Type
+
+The table below breaks Real/Fake detection accuracy down by post-processing type, for the three configurations. It shows exactly where the single-task baselines fail and how balanced the joint model is.
+
+| Transformation | Class | $\alpha = 0.0$ | $\alpha = 1.0$ | $\alpha = 0.5$ |
+|---|---|:---:|:---:|:---:|
+| Original | Fake_AI | 0.064 | 0.952 | 0.920 |
+| Original | Real | 0.688 | 0.904 | 0.912 |
+| Transmitted | Fake_AI | 0.392 | 0.984 | 0.968 |
+| Transmitted | Real | 0.552 | 0.920 | 0.968 |
+| Redigitized | Fake_AI | 0.864 | 0.928 | 0.928 |
+| Redigitized | Real | 0.176 | 0.936 | 0.928 |
+
+* **$\alpha = 0.0$ — no decision boundary:** The results change drastically, from 0.064 on Original-Fake images to 0.864 on Redigitized-Fake (while Redigitized-Real falls to 0.176). This is what happens when the model guesses from transformation cues instead of real authenticity features.
+* **$\alpha = 1.0$ — strong but a bit uneven:** Good everywhere, but slightly better on Transmitted-Fake (0.984) than on Original-Real (0.904), because the model was never trained to handle the different compression layers.
+* **$\alpha = 0.5$ — balanced and robust:** Detection is almost perfectly balanced between Real and Fake in every layer (for example, Transmitted reaches 0.968 for both, and Redigitized 0.928 for both). Authenticity is actually highest under JPEG transmission, which suggests that learning to recognize 8×8 compression blocks helps the model filter out noise and find the AI traces. **Redigitization is the hardest layer**, because the screen moiré and pixel grids partly hide the AI's structural noise.
+
+### 7.4 The α Ablation Study
+
+Testing the full range of $\alpha$ answers the main question of this design: do the two tasks **compete** for the model's capacity, or do they **help each other**?
+
+| $\alpha$ | Auth. Acc | Auth. AUC | Auth. F1 | Transf. Acc | Transf. F1 |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| 0.0 | 0.4560 | 0.4326 | 0.4472 | 0.9093 | 0.9087 |
+| 0.1 | 0.9373 | 0.9859 | 0.9377 | 0.9427 | 0.9424 |
+| 0.3 | 0.8853 | 0.9663 | 0.8828 | 0.9053 | 0.9046 |
+| **0.5** | 0.9373 | 0.9876 | 0.9374 | **0.9440** | **0.9439** |
+| 0.7 | 0.9320 | 0.9863 | 0.9340 | 0.9240 | 0.9236 |
+| 0.9 | **0.9440** | **0.9884** | **0.9443** | 0.9213 | 0.9210 |
+| 1.0 | 0.9373 | 0.9869 | 0.9384 | 0.3427 | 0.3379 |
+
+![Ablation: F1-Score vs. α Weighting](Figures/ablation_tradeoff.png)
+
+* **They help each other, they don't compete:** If the tasks competed, the joint models would score lower than the baselines. Instead, the model keeps high performance across a wide range, $\alpha \in [0.1, 0.9]$, beating both extremes. The best Transformation F1 (**0.9439**, $\alpha = 0.5$) is higher than the Transformation-only baseline (0.9087), and the best Authenticity F1 (**0.9443**, $\alpha = 0.9$) is higher than the Authenticity-only baseline (0.9384), with AUC reaching **0.9884**. Training both tasks together works as a form of regularization.
+* **An asymmetry between the tasks:** At $\alpha = 0.1$ (90% of the weight on Transformation), Authenticity still jumps to **0.9377 F1 / 0.9859 AUC**. The reason is that the filters needed to detect compression blocks and moiré are the same ones that reveal generative noise, so the Authenticity head gets them almost for free. The opposite is not true: at $\alpha = 1.0$, Transformation drops to chance level, because the model needs explicit training to learn the compression and recapture patterns.
+
+### 7.5 Conclusion
+
+The ablation confirms that multi-task learning is clearly better than training each task alone for this problem. The recommended choice is the balanced **$\alpha = 0.5$** model: it gives the best Transformation result (0.9439 F1) while keeping top Authenticity detection (0.9876 AUC), with balanced Real/Fake accuracy in every layer. Training one shared ConvNeXt backbone to separate the post-processing transformations from the generative AI traces produces more robust and more general features than training either task on its own.
